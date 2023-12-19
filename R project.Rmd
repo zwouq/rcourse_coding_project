@@ -1,0 +1,241 @@
+---
+title: "Influence of Risk and Investment Strategy on Performance of US Mutual Funds"
+runtime: shiny
+output: html_notebook
+---
+
+# Abstract
+  This study aims to investigate the correlation of risk and investment strategy with funds' performance using a comprehensive dataset of mutual funds from Yahoo Finance. The dataset comprises 24,821 mutual funds with various characteristics, including its year-to-date yield, Morningstar rating and sector allocation. By analyzing this extensive data, the study aims to identify patterns and relationships between risk, investment strategy, and funds' performance. This analysis will be relevant for investors seeking to make informed decisions based on funds' characteristics.
+
+**Keywords**: mutual funds, risk assessment, investment strategy, performance correlation.
+
+# Introduction
+
+## 1. Project description
+
+This project will focus on the influence of risk and investment strategy with funds' performance.
+
+The dataset was borrowed from Kaggle's user Stefano Leone (URL: <https://www.kaggle.com/datasets/stefanoleone992/mutual-funds-and-etfs>), who compiled Yahoo Finance data. The data relates to the **November 2021** (24.11.2021 to be exact) financial values.
+
+## 2. Process phase
+
+### 2.1. Installing packages and opening libraries
+
+```{r}
+library(psych)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(summarytools)
+library(shiny)
+library(ggvis)
+library(corrplot)
+```
+
+### 2.2. Importing dataset
+
+```{r}
+df <- read_csv("/Users/zwouq/Desktop/masters ds/1st year/R/project/MutualFunds.csv")
+```
+
+### 2.3. Cleaning dataset
+
+Since the dataset contains a lot of information that we won't need, it's best to clean it.
+
+```{r}
+filtered_df <- df %>%
+  select(fund_long_name, total_net_assets, year_to_date_return, day200_moving_average, week52_high_change, fund_yield, morningstar_overall_rating, morningstar_risk_rating, morningstar_return_rating, investment_type, size_type, asset_cash, asset_stocks, asset_bonds, asset_others, fund_sector_basic_materials, fund_sector_communication_services, fund_sector_consumer_cyclical, fund_sector_consumer_defensive, fund_sector_energy, fund_sector_financial_services, fund_sector_healthcare, fund_sector_industrials, fund_sector_real_estate, fund_sector_technology, fund_sector_utilities, fund_price_book_ratio, category_price_book_ratio, fund_price_earning_ratio, category_price_earning_ratio, fund_median_market_cap, fund_year3_earnings_growth, category_year3_earnings_growth, morningstar_return_rating, investment_strategy, management_start_date)
+```
+
+The next step is removing duplicates. I've decided to filter using three columns, since some funds might replicate or mirror other funds' strategies, resulting in identical names. Investment_strategy was chosen because some funds may break down the structure into different parts for different types of investors.
+
+```{r}
+filtered_df <- filtered_df %>%
+  distinct(fund_long_name, investment_strategy, management_start_date, .keep_all = TRUE) %>%
+  drop_na()
+```
+
+In the first step 31 rows have been removed. In the second 13 673 rows have been dropped. Some missing aspects: fund names can change over time due to mergers, acquisitions, rebranding, or corporate actions, changing names, resulting in separate rows. Due the to complex nature of this, it's difficult to account for this sort of duplication. In the end, 10 079 records remained.
+
+```{r}
+describe(x = filtered_df)
+```
+
+```{r}
+lapply(filtered_df, class)
+```
+
+We see that there are columns that need to be changed to a specific type, since they contain categorical variables: investment type, fund's size, Morningstar's ratings.
+
+```{r}
+
+filtered_df$investment_type <- factor(filtered_df$investment_type)
+filtered_df$size_type <- factor(filtered_df$size_type)
+
+filtered_df$morningstar_overall_rating <- factor(filtered_df$morningstar_overall_rating, levels = 1:5)
+filtered_df$morningstar_risk_rating <- factor(filtered_df$morningstar_risk_rating, levels = 1:5)
+filtered_df$morningstar_return_rating <- factor(filtered_df$morningstar_return_rating, levels = 1:5)
+```
+
+```{r}
+lapply(filtered_df, class)
+```
+
+Now we see that each column is the type it is needed to be.
+
+```{r}
+describe(filtered_df)
+```
+
+## 3. Analysis
+### 3.1. Sample visualization
+
+Let's see what kind of funds we're working with. From the Figure 1 below we can deduct that more than 75% of our sample are large funds, with medium size ones contributing 15% of the sample and small ones the remaining 7.5%.
+
+* For reference[1]:
+| Category        | Market capitalization | Risk        |
+|-----------------|-----------------------|-------------|
+| Large           | $20+bn                | Low         |
+| Medium          | $2-$20bn              | Moderate    |
+| Small           | <$2bn                 | High        |
+
+
+```{r}
+# Calculate frequencies of each category
+size_distribution <- table(filtered_df$size_type)
+
+#Define colors
+my_colors <- c("#FF9999", "#66B2FF", "#99FF99")
+
+# Create a pie chart
+pie(size_distribution, labels = paste(names(size_distribution), ": ", size_distribution, sep = ""), main = "Figure 1. Fund size distribution in the sample", col = my_colors)
+```
+In regard to investment strategy, there are 3 of them [4]:
+1. Value strategy:  involves finding stocks that the market undervalues, considering their fundamental attributes like earnings, dividends, and other financial metrics. Investors believe that these stocks have the potential for future appreciation once the market recognizes their true worth.
+2. Growth strategy: Growth investing focuses on companies expected to grow at an above-average rate compared to other companies in the market. Investors seek stocks of companies with high potential for future growth, even if their current earnings might be lower or they may appear overvalued based on traditional metrics.
+3. Blend: combines growth and value investing. It involves investing in a mix of both growth stocks (those expected to grow at an above-average rate compared to other companies) and value stocks (those considered undervalued in the market).
+
+In our sample we have primarily Mutual Funds who follow Blend strategy (60%), followed by Value (10%) and Growth (30$).
+
+```{r}
+# Calculate frequencies of each category
+invtype_distribution <- table(filtered_df$investment_type)
+
+#Define colors
+my_colors <- c("#FFCC99", "#99CCFF", "#CC99FF")
+
+# Create a pie chart
+pie(invtype_distribution, labels = paste(names(invtype_distribution), ": ", invtype_distribution, sep = ""), main = "Figure 2. Funds' investment type distribution in the sample", col = my_colors)
+```
+## 3.2. Analysis of Funds' returns and risk level
+
+When considering Funds' size we see the following (Fig. 3):
+1. Smaller funds generally have higher returns;
+2. Medium size funds have larger distribution of returns, closely followed by large ones. Small ones have returns that do not diverge as much.
+
+```{r}
+ggplot(filtered_df, aes(x = size_type, y = year_to_date_return, fill = size_type)) +
+  geom_boxplot() +  
+  geom_jitter(position = position_jitter(width = 0.1), alpha = 0.1) + 
+  labs(x = "Size Type", y = "Year-to-date Return", title = "Figure 3. Box plots of Funds' returns by Size with Superimposed Data Points") +
+  theme_minimal()
+```
+Looking further, we see that the possible explanation for this are (see Fig. 4):
+1. Large funds in general have higher variation in returns, with risk rating not affecting much of the discrepancy;
+2. In regard to medium size, in Blend and Value strategy the variation in returns is more prominent among funds with Risk rating=3.
+
+Other important thing to note is that in Small funds, irregardless of strategy (Growth not considered due to small sample size), the returns tend to rise with a more favourable risk rating.
+
+* For reference [5]:
+Shortly speaking, Morningstar evaluates funds based on their historical performance and gives them a score, where 1 denotes the highest risk and 5 - the lowest.
+
+```{r}
+qplot(morningstar_risk_rating, year_to_date_return, data=filtered_df, facets = investment_type~size_type) +
+  ggtitle("Figure 4. Funds' risk and return by Funds' size and Investment Strategy")
+```
+
+## 3.3. Relationship between variables: which factors to look for when seeking higher returns?
+
+It is also noteworthy to look at the heatmap. From Figure 5 we see that YTD (year-to-date) return is positively correlated with higher share of stocks in the portfolio and negatively with higher share of bonds in the portfolio. It corresponds with the existing finance literature that states that since stocks are a riskier asset, they bring higher returns than bonds, which are considered to be a safe asset [3].
+Another thing to notice is sector difference: higher share of investments in energy firms and real estate positively correlates with YTD returns while higher share of investments in communication and basic materials sectors negatively corresponds with YTD returns.
+
+```{r}
+# Sorting for only numerical variables
+numeric_filtered_df <- filtered_df %>%
+  select_if(is.numeric)
+
+corr_matrix <- cor(numeric_filtered_df)
+corrplot(corr_matrix, method = "color", title = "Figure 5. Correlation Plot")
+```
+
+
+## 3.4. Dashboard
+In this dashboard you can see for yourself which funds bring better return taking into the account the desired risk level:
+
+```{r}
+# Define UI for the app
+ui <- fluidPage(
+  titlePanel("Mutual Fund Visualization"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      inputPanel(
+        selectInput("rating",
+                    "Select MS Rating",
+                    choices = unique(filtered_df$morningstar_overall_rating),
+                    selected = filtered_df$morningstar_overall_rating),
+        selectInput("inv_type",
+                    "Select Investment Type",
+                    choices = unique(filtered_df$investment_type)),
+        sliderInput("return",
+                    "Select Return",
+                    min = min(filtered_df$year_to_date_return), 
+                    max = max(filtered_df$year_to_date_return),
+                    value = c(min(filtered_df$year_to_date_return), max(filtered_df$year_to_date_return)),
+                    step = 0.05)
+      )
+    ),
+    
+    mainPanel(
+      plotOutput("fund_plot")
+    )
+  )
+  )
+
+# Define server logic
+server <- function(input, output) {
+  output$fund_plot <- renderPlot({
+    filtered_funds <- filtered_df %>%
+      filter(morningstar_overall_rating == input$rating,
+             investment_type == input$inv_type,
+             year_to_date_return >= input$return[1] & year_to_date_return <= input$return[2])
+    
+    ggplot(filtered_funds, aes(x = as.numeric(morningstar_overall_rating), y = year_to_date_return, label = fund_long_name)) +
+      geom_point() +
+      geom_text(nudge_x = 0, hjust = 0, vjust = 0.5, size = 3) + 
+      labs(x = "Morningstar Rating", y = "Year-to-date Return") +
+      scale_y_continuous(breaks = 1:5, labels = levels(filtered_funds$morningstar_overall_rating)) +
+      theme_minimal()
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
+```
+
+# 4. Discussion and recommendations
+To sum up, this article focused on investigating the correlation of risk and investment strategy with funds' performance using a comprehensive dataset of mutual funds from Yahoo Finance. By analyzing data from Yahoo Finance, the study aimed to identify patterns and relationships between risk, investment strategy, and funds' performance and have found the following:
+1. return is positively correlated with higher share of stocks in the portfolio and negatively with higher share of bonds in the portfolio;
+2. higher share of investments in energy firms and real estate positively correlates with YTD returns while higher share of investments in communication and basic materials sectors - negatively;
+3. size of the fund seems to matter: smaller funds generally have higher returns and the variation is lower than in the case of large and medium ones;
+4. in general, risk assessment of fund does not seem to matter in the case of medium and large mutual funds, while in the case of smaller ones it matters - funds with lower risk bring higher returns.
+
+This analysis will be relevant for investors seeking to make informed decisions based on funds' characteristics.
+
+# 5. References
+[1] Investopedia. Does Size Really Matter? Link: https://www.investopedia.com/articles/mutualfund/03/071603.asp (Accessed 3 Dec 2023).
+[2] Kaggle. US Funds dataset from Yahoo Finance. Link: https://www.kaggle.com/datasets/stefanoleone992/mutual-funds-and-etfs/data (Accessed 1 Dec 2023).
+[3] Wolski, R., 2017. Risk and return in the real estate, bond and stock markets. Real Estate Management and Valuation, 25(3), pp.15-22.
+[4] Damodaran, A., 2012. Value investing: investing for grown ups?. Available at SSRN 2042657.
+[5] Morningstar. Methodology. Link: https://www.morningstar.com/research/signature (Accessed 4 Dec 2023).
